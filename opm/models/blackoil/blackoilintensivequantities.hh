@@ -120,7 +120,7 @@ public:
         ParentType::update(elemCtx, dofIdx, timeIdx);
 
         const auto& problem = elemCtx.problem();
-        const auto& priVars = elemCtx.primaryVars(dofIdx, timeIdx);
+        auto& priVars = elemCtx.primaryVars(dofIdx, timeIdx);
 
         asImp_().updateTemperature_(elemCtx, dofIdx, timeIdx);
 
@@ -188,7 +188,7 @@ public:
         MaterialLaw::capillaryPressures(pC, materialParams, fluidState_);
 
         //oil is the reference phase for pressure
-        if (priVars.primaryVarsMeaning() == PrimaryVariables::Sw_pg_Rv) {
+        if (compositionSwitchEnabled && priVars.primaryVarsMeaning() == PrimaryVariables::Sw_pg_Rv) {
             const Evaluation& pg = priVars.makeEvaluation(Indices::pressureSwitchIdx, timeIdx);
             for (unsigned phaseIdx = 0; phaseIdx < numPhases; ++phaseIdx)
                 if (FluidSystem::phaseIsActive(phaseIdx))
@@ -218,7 +218,10 @@ public:
 
         // take the meaning of the switiching primary variable into account for the gas
         // and oil phase compositions
-        if (priVars.primaryVarsMeaning() == PrimaryVariables::Sw_po_Sg) {
+        if (!compositionSwitchEnabled){
+            //do nothing
+        }
+        else if (priVars.primaryVarsMeaning() == PrimaryVariables::Sw_po_Sg) {
             // in the threephase case, gas and oil phases are potentially present, i.e.,
             // we use the compositions of the gas-saturated oil and oil-saturated gas.
             if (FluidSystem::enableDissolvedGas()) {
@@ -287,7 +290,7 @@ public:
                 fluidState_.setRs(0.0);
             }
         } else {
-            assert(priVars.primaryVarsMeaning() == PrimaryVariables::OnePhase_p);
+            //assert(priVars.primaryVarsMeaning() == PrimaryVariables::OnePhase_p);
         }
 
         typename FluidSystem::template ParameterCache<Evaluation> paramCache;

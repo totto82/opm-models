@@ -119,12 +119,14 @@ public:
         Sw_po_Rs, // water + oil case
         Sw_pg_Rv, // water + gas case
         OnePhase_p, // onephase case
+        Undef, //
     };
 
     BlackOilPrimaryVariables()
         : ParentType()
     {
         Opm::Valgrind::SetUndefined(*this);
+        setPrimaryVarsMeaning(Undef);
         pvtRegionIdx_ = 0;
     }
 
@@ -134,7 +136,8 @@ public:
     BlackOilPrimaryVariables(Scalar value)
         : ParentType(value)
     {
-        Opm::Valgrind::SetUndefined(primaryVarsMeaning_);
+        //Opm::Valgrind::SetUndefined(primaryVarsMeaning_);
+        setPrimaryVarsMeaning(Undef);
         pvtRegionIdx_ = 0;
     }
 
@@ -338,6 +341,48 @@ public:
         checkDefined();
     }
 
+//    /*!
+//     * \copydoc ImmisciblePrimaryVariables::assignNaive
+//     */
+//    void assignNaiveMeaning()
+//    {
+//        using ConstEvaluation = typename std::remove_reference<typename FluidState::Scalar>::type;
+//        using FsEvaluation = typename std::remove_const<ConstEvaluation>::type;
+//        using FsToolbox = typename Opm::MathToolbox<FsEvaluation>;
+
+//        bool gasPresent = FluidSystem::phaseIsActive(gasPhaseIdx)?(fluidState.saturation(gasPhaseIdx) > 0.0):false;
+//        bool oilPresent = FluidSystem::phaseIsActive(oilPhaseIdx)?(fluidState.saturation(oilPhaseIdx) > 0.0):false;
+//        static const Scalar thresholdWaterFilledCell = 1.0 - 1e-6;
+//        bool onlyWater = FluidSystem::phaseIsActive(waterPhaseIdx)?(fluidState.saturation(waterPhaseIdx) > thresholdWaterFilledCell):false;
+
+//        // determine the meaning of the primary variables
+//        if (FluidSystem::numActivePhases() == 1) {
+//            primaryVarsMeaning_ = OnePhase_p;
+//        }
+//        else if ((gasPresent && oilPresent) || (onlyWater && FluidSystem::phaseIsActive(oilPhaseIdx))) {
+//            // gas and oil: both hydrocarbon phases are in equilibrium (i.e., saturated
+//            // with the "protagonist" component of the other phase.)
+//            primaryVarsMeaning_ = Sw_po_Sg;
+//        }
+//        else if (oilPresent) {
+//            // only oil: if dissolved gas is enabled, we need to consider the oil phase
+//            // composition, if it is disabled, the gas component must stick to its phase
+//            if (FluidSystem::enableDissolvedGas())
+//                primaryVarsMeaning_ = Sw_po_Rs;
+//            else
+//                primaryVarsMeaning_ = Sw_po_Sg;
+//        }
+//        else {
+//            assert(gasPresent);
+//            // only gas: if vaporized oil is enabled, we need to consider the gas phase
+//            // composition, if it is disabled, the oil component must stick to its phase
+//            if (FluidSystem::enableVaporizedOil())
+//                primaryVarsMeaning_ = Sw_pg_Rv;
+//            else
+//                primaryVarsMeaning_ = Sw_po_Sg;
+//        }
+//    }
+
     /*!
      * \brief Adapt the interpretation of the switching variables to be physically
      *        meaningful.
@@ -363,6 +408,10 @@ public:
         if (primaryVarsMeaning() == OnePhase_p){
             return false;
         }
+
+        if (!compositionSwitchEnabled)
+            return false;
+
         Scalar Sw = 0.0;
         if (waterEnabled)
             Sw = (*this)[Indices::waterSaturationIdx];
@@ -647,6 +696,8 @@ public:
     {
         for (unsigned i = 0; i < numEq; ++i)
             (*this)[i] = value;
+
+        setPrimaryVarsMeaning(Undef);
 
         return *this;
     }

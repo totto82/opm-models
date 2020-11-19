@@ -401,10 +401,13 @@ class FvBaseDiscretization
 
     // discrete function storing solution data
     using DiscreteFunction = Dune::Fem::ISTLBlockVectorDiscreteFunction<DiscreteFunctionSpace, PrimaryVariables>;
-
+    //using DiscreteFunction = BlockVectorWrapper;
+    //using DiscreteFunctionSpace = size_t;
     // problem restriction and prolongation operator for adaptation
     using Problem = GetPropType<TypeTag, Properties::Problem>  ;
     using ProblemRestrictProlongOperator = typename Problem :: RestrictProlongOperator ;
+    //using ProblemRestrictProlongOperator2 = typename Problem :: SolRestrictProlongOperator ;
+
 
     // discrete function restriction and prolongation operator for adaptation
     using DiscreteFunctionRestrictProlong = Dune::Fem::RestrictProlongDefault< DiscreteFunction >;
@@ -1796,8 +1799,8 @@ public:
         if (enableGridAdaptation_
             && !std::is_same<DiscreteFunction, BlockVectorWrapper>::value)
         {
-            throw std::invalid_argument("Problems which require auxiliary modules cannot be used in"
-                                      " conjunction with dune-fem");
+            //throw std::invalid_argument("Problems which require auxiliary modules cannot be used in"
+            //                          " conjunction with dune-fem");
         }
 
         size_t numDof = numTotalDof();
