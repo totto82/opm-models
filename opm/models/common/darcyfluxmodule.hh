@@ -463,6 +463,16 @@ protected:
         const DimVector& normal = scvf.normal();
         Valgrind::CheckDefined(normal);
 
+		int idx = 0;
+		double val = 0;
+		for (unsigned i = 0; i < dimWorld; ++i) {
+			if (std::abs(normal[i]) > val) {
+				val = std::abs(normal[i]);
+				idx = i;
+			}			
+		}
+		Scalar K = K_[idx][idx];
+		
         for (unsigned phaseIdx=0; phaseIdx < numPhases; phaseIdx++) {
             filterVelocity_[phaseIdx] = 0.0;
             volumeFlux_[phaseIdx] = 0.0;
@@ -474,7 +484,7 @@ protected:
 
             volumeFlux_[phaseIdx] = 0.0;
             for (unsigned i = 0; i < normal.size(); ++i)
-                volumeFlux_[phaseIdx] += filterVelocity_[phaseIdx][i] * normal[i];
+                volumeFlux_[phaseIdx] += K * filterVelocity_[phaseIdx][i] * normal[i];
         }
     }
 
@@ -491,6 +501,17 @@ protected:
         const auto& scvf = elemCtx.stencil(timeIdx).boundaryFace(boundaryFaceIdx);
         const DimVector& normal = scvf.normal();
         Valgrind::CheckDefined(normal);
+		
+
+		int idx = 0;
+		double val = 0;
+		for (unsigned i = 0; i < dimWorld; ++i) {
+			if (std::abs(normal[i]) > val) {
+				val = std::abs(normal[i]);
+				idx = i;
+			}			
+		}
+		Scalar K = K_[idx][idx];
 
         for (unsigned phaseIdx=0; phaseIdx < numPhases; phaseIdx++) {
             if (!elemCtx.model().phaseIsConsidered(phaseIdx)) {
@@ -503,7 +524,7 @@ protected:
             Valgrind::CheckDefined(filterVelocity_[phaseIdx]);
             volumeFlux_[phaseIdx] = 0.0;
             for (unsigned i = 0; i < normal.size(); ++i)
-                volumeFlux_[phaseIdx] += filterVelocity_[phaseIdx][i] * normal[i];
+                volumeFlux_[phaseIdx] += K * filterVelocity_[phaseIdx][i] * normal[i];
         }
     }
 
@@ -515,8 +536,10 @@ protected:
             for (unsigned j = 0; j < K_.N(); ++ j)
                 assert(std::isfinite(K_[i][j]));
 #endif
-
-        K_.mv(potentialGrad_[phaseIdx], filterVelocity_[phaseIdx]);
+		for (unsigned i = 0; i < filterVelocity_[phaseIdx].size(); ++ i) {
+			filterVelocity_[phaseIdx][i] = potentialGrad_[phaseIdx][i];
+		}
+        //K_.mv(potentialGrad_[phaseIdx], filterVelocity_[phaseIdx]);
         filterVelocity_[phaseIdx] *= - mobility_[phaseIdx];
 
 #ifndef NDEBUG
