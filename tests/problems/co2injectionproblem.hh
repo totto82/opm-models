@@ -46,8 +46,10 @@
 #include <opm/material/common/UniformTabulated2DFunction.hpp>
 #include <opm/material/common/Unused.hpp>
 
-#include <dune/grid/yaspgrid.hh>
-#include <dune/grid/io/file/dgfparser/dgfyasp.hh>
+//#include <dune/grid/yaspgrid.hh>
+#include <dune/alugrid/grid.hh>
+#include <dune/grid/io/file/gmshreader.hh>
+//#include <dune/grid/io/file/dgfparser/dgfyasp.hh>
 
 #include <dune/common/version.hh>
 #include <dune/common/fvector.hh>
@@ -97,7 +99,7 @@ struct SimulationName { using type = UndefinedProperty; };
 
 // Set the grid type
 template<class TypeTag>
-struct Grid<TypeTag, TTag::Co2InjectionBaseProblem> { using type = Dune::YaspGrid<2>; };
+struct Grid<TypeTag, TTag::Co2InjectionBaseProblem> { using type =  Dune::ALUGrid<2, 2, Dune::simplex, Dune::nonconforming>; };
 
 // Set the problem property
 template<class TypeTag>
@@ -231,9 +233,12 @@ struct InitialTimeStepSize<TypeTag, TTag::Co2InjectionBaseProblem>
     static constexpr type value = 250;
 };
 
+template<class TypeTag>
+struct Vanguard<TypeTag, TTag::Co2InjectionBaseProblem> { using type = Opm::DgfVanguard<TypeTag>; };
+
 // The default DGF file to load
 template<class TypeTag>
-struct GridFile<TypeTag, TTag::Co2InjectionBaseProblem> { static constexpr auto value = "data/co2injection.dgf"; };
+struct GridFile<TypeTag, TTag::Co2InjectionBaseProblem> { static constexpr auto value = "data/fluidflower.msh"; };
 
 } // namespace Opm::Properties
 
