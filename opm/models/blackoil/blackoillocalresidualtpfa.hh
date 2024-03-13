@@ -36,6 +36,7 @@
 #include "blackoilfoammodules.hh"
 #include "blackoilbrinemodules.hh"
 #include "blackoildiffusionmodule.hh"
+#include "blackoilconvectivemixingmodule.hh"
 #include "blackoildispersionmodule.hh"
 #include "blackoilmicpmodules.hh"
 #include <opm/material/fluidstates/BlackOilFluidState.hpp>
@@ -103,6 +104,7 @@ class BlackOilLocalResidualTPFA : public GetPropType<TypeTag, Properties::DiscLo
     using FoamModule = BlackOilFoamModule<TypeTag>;
     using BrineModule = BlackOilBrineModule<TypeTag>;
     using DiffusionModule = BlackOilDiffusionModule<TypeTag, enableDiffusion>;
+    using ConvectiveMixingModule = BlackOilConvectiveMixingModule<TypeTag>;
     using DispersionModule = BlackOilDispersionModule<TypeTag, enableDispersion>;
     using MICPModule = BlackOilMICPModule<TypeTag>;
 
@@ -223,7 +225,6 @@ public:
      */
     static void computeFlux(RateVector& flux,
                             RateVector& darcy,
-                            const ElementContext& elemCtx,
                             const unsigned globalIndexIn,
                             const unsigned globalIndexEx,
                             const IntensiveQuantities& intQuantsIn,
@@ -236,7 +237,6 @@ public:
 
         calculateFluxes_(flux,
                          darcy,
-                         elemCtx,
                          intQuantsIn,
                          intQuantsEx,
                          globalIndexIn,
@@ -304,7 +304,6 @@ public:
 
         calculateFluxes_(flux,
                          darcy,
-                         elemCtx,
                          intQuantsIn,
                          intQuantsEx,
                          globalIndexIn,
@@ -314,7 +313,6 @@ public:
 
     static void calculateFluxes_(RateVector& flux,
                                  RateVector& darcy,
-                                 const ElementContext& elemCtx,
                                  const IntensiveQuantities& intQuantsIn,
                                  const IntensiveQuantities& intQuantsEx,
                                  const unsigned& globalIndexIn,
@@ -402,21 +400,19 @@ public:
         }
 
         // move somewhere
-        const auto& problem = elemCtx.problem();
-		const auto& oilVaporizationControl = problem.simulator().vanguard().schedule()[problem.episodeIndex()].oilvap();
+        // intensiveQu
+        //const auto& problem = elemCtx.problem();
+		//const auto& oilVaporizationControl = problem.simulator().vanguard().schedule()[problem.episodeIndex()].oilvap();
+        //if(oilVaporizationControl.drsdtConvective()) {
+		/* if(1) {
 
-		if(oilVaporizationControl.drsdtConvective()) {
-            const auto& stencil = elemCtx.stencil(timeIdx);
-			const auto& scvf = stencil.interiorFace(scvfIdx);
-            Scalar zIn = problem.dofCenterDepth(elemCtx, scvf.interiorIndex(), timeIdx);
-            Scalar zEx = problem.dofCenterDepth(elemCtx, scvf.exteriorIndex(), timeIdx);
+
                 
             // the distances from the DOF's depths. (i.e., the additional depth of the
             // exterior DOF)
-            Scalar distZ = zIn - zEx;
-            Scalar g = problem.gravity()[2];
             //interiour
-            const auto& intQuantsIn = elemCtx.intensiveQuantities(scvf.interiorIndex(), timeIdx);
+   
+
             const Scalar rs_zero_in = 0.0;
             const auto& t_in = Opm::getValue(intQuantsIn.fluidState().temperature(FluidSystem::oilPhaseIdx));
             const auto& p_in = Opm::getValue(intQuantsIn.fluidState().pressure(FluidSystem::oilPhaseIdx));
@@ -427,8 +423,9 @@ public:
             const auto rho_sat_in = FluidSystem::oilPvt().saturatedInverseFormationVolumeFactor(intQuantsIn.pvtRegionIndex(), t_in, p_in)
                 * (FluidSystem::oilPvt().oilReferenceDensity(intQuantsIn.pvtRegionIndex())
                 + rssat_in * FluidSystem::referenceDensity(FluidSystem::gasPhaseIdx, intQuantsIn.pvtRegionIndex()));
+            
             //exteriour
-            const auto& intQuantsEx = elemCtx.intensiveQuantities(scvf.exteriorIndex(), timeIdx);
+
             const Scalar rs_zero_ex = 0.0;
             const auto& t_ex = Opm::getValue(intQuantsEx.fluidState().temperature(FluidSystem::oilPhaseIdx));
             const auto& p_ex = Opm::getValue(intQuantsEx.fluidState().pressure(FluidSystem::oilPhaseIdx));
@@ -442,37 +439,43 @@ public:
             
             //rho difference approximation
             const auto delta_rho = (rho_sat_ex + rho_sat_in - rho_in -rho_ex)/2;
-            const auto pressure_difference_convective_mixing =  delta_rho * g * distZ;
+            const auto pressure_difference_convective_mixing =  delta_rho * distZg;
 
             //if change in pressure
             if (Opm::abs(pressure_difference_convective_mixing) > 1e-12){
-                
+
                 // find new upstream direction
-                unsigned upIdx = scvf.interiorIndex();
-                unsigned downIdx = scvf.exteriorIndex();
+                short interiorDofIdx = 0; // NB
+                short exteriorDofIdx = 1; // NB
+                unsigned upIdx = 0;//scvf.interiorIndex();
+                unsigned downIdx = 1;//scvf.exteriorIndex();
+
                 if (pressure_difference_convective_mixing > 0) {
-                    pIdx = scvf.exteriorIndex();
-                    downIdx = scvf.interiorIndex();
+                    upIdx = exteriorDofIdx;//scvf.exteriorIndex();
+                    downIdx = interiorDofIdx;//scvf.interiorIndex();
                 }
 
-                Scalar trans = problem.transmissibility(elemCtx, scvf.interiorIndex(), scvf.exteriorIndex());
-                Scalar faceArea = scvf.area();
-                const IntensiveQuantities& up = elemCtx.intensiveQuantities(upIdx, timeIdx);
-                const IntensiveQuantities& down = elemCtx.intensiveQuantities(downIdx, timeIdx);
-                const auto& Rs =  up.fluidState().Rs();
+                const IntensiveQuantities& up2 = (upIdx == interiorDofIdx) ? intQuantsIn : intQuantsEx;
+                unsigned globalUpIndex2 = (upIdx == interiorDofIdx) ? globalIndexIn : globalIndexEx;
+
+                const IntensiveQuantities& down2 = (downIdx == interiorDofIdx) ? intQuantsIn : intQuantsEx;
+                unsigned globalDownIndex2 = (downIdx == interiorDofIdx) ? globalIndexIn : globalIndexEx;
+
+                
+                const auto& Rs =  up2.fluidState().Rs();
                 //const Evaluation SoMax = 0.0;
-                const auto& RsSat = up.fluidState().RsSat();
-                const Evaluation& transMult = up.rockCompTransMultiplier();
+                const auto& RsSat = up2.fluidState().RsSat();
+                const Evaluation& transMult = up2.rockCompTransMultiplier();
                 
                 //Evaluation Sm = Opm::min(0.999, Opm::max(0.001, Rs/RsSat));
                 // for regime:
                 const Scalar Xhi = oilVaporizationControl.getMaxDRSDT(intQuantsIn.pvtRegionIndex());
                 Scalar Smo = oilVaporizationControl.getSmo(intQuantsIn.pvtRegionIndex());
-                Evaluation sg = up.fluidState().saturation(FluidSystem::gasPhaseIdx);
+                Evaluation sg = up2.fluidState().saturation(FluidSystem::gasPhaseIdx);
                 Evaluation S = (Rs - RsSat * sg) / (RsSat * ( 1.0 - sg));
-                if ( (S > Smo || down.fluidState().Rs() > 0) ) {
-                    const auto& invB = up.fluidState().invB(oilPhaseIdx);
-                    const auto& visc = up.fluidState().viscosity(oilPhaseIdx);
+                if ( (S > Smo || down2.fluidState().Rs() > 0) ) {
+                    const auto& invB = up2.fluidState().invB(oilPhaseIdx);
+                    const auto& visc = up2.fluidState().viscosity(oilPhaseIdx);
                     // what will be the flux when muliplied with trans_mob
                     const auto convectiveFlux = -trans*transMult*Xhi*invB*pressure_difference_convective_mixing*Rs/(visc*faceArea);
                     unsigned activeGasCompIdx = Indices::canonicalToActiveComponentIndex(gasCompIdx);
@@ -486,7 +489,7 @@ public:
                 }
             }
 
-        }
+        } */
 
         // deal with solvents (if present)
         static_assert(!enableSolvent, "Relevant computeFlux() method must be implemented for this module before enabling.");
@@ -498,8 +501,7 @@ public:
 
         // deal with polymer (if present)
         static_assert(!enablePolymer, "Relevant computeFlux() method must be implemented for this module before enabling.");
-        // Poly
-        merModule::computeFlux(flux, elemCtx, scvfIdx, timeIdx);
+        // PolymerModule::computeFlux(flux, elemCtx, scvfIdx, timeIdx);
 
         // deal with energy (if present)
         if constexpr(enableEnergy){
@@ -534,6 +536,10 @@ public:
         // deal with salt (if present)
         static_assert(!enableBrine, "Relevant computeFlux() method must be implemented for this module before enabling.");
         // BrineModule::computeFlux(flux, elemCtx, scvfIdx, timeIdx);
+
+        // deal with convective mixing
+        //ConvectiveMixingModule::addConvectiveMixingFlux();
+
 
         // deal with diffusion (if present). opm-models expects per area flux (added in the tmpdiffusivity).
         if constexpr(enableDiffusion){
@@ -709,7 +715,7 @@ public:
                                        RateVector& bdyFlux,
                                        const BoundaryConditionData& bdyInfo,
                                        const IntensiveQuantities& insideIntQuants,
-                                       [[maybe_unused]] unsigned globalSpaceIdx)
+                                       unsigned globalSpaceIdx)
     {
         OPM_TIMEBLOCK_LOCAL(computeBoundaryThermal);
         // only heat is allowed to flow through this boundary
