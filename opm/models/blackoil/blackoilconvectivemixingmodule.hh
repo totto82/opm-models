@@ -29,12 +29,14 @@
 #define EWOMS_CONVECTIVEMIXING_MODULE_HH
 
 #include <opm/models/discretization/common/fvbaseproperties.hh>
+#include <opm/input/eclipse/Schedule/OilVaporizationProperties.hpp>
 
 #include <opm/material/common/Valgrind.hpp>
 
 #include <dune/common/fvector.hh>
 
 #include <stdexcept>
+#include <iostream>
 
 namespace Opm {
 
@@ -43,19 +45,22 @@ namespace Opm {
  * \class Opm::BlackOilConvectiveMixingModule
  * \brief Provides the requiered methods for dynamic convective mixin.
  */
-template <class TypeTag>
-class BlackOilConvectiveMixingModule;
+//template <class TypeTag>
+//class BlackOilConvectiveMixingModule;
 
 
 /*!
  * \copydoc Opm::BlackOilConvectiveMixingModule
  */
 template <class TypeTag>
-class BlackOilConvectiveMixingModule<TypeTag>
+class BlackOilConvectiveMixingModule
 {
     using Scalar = GetPropType<TypeTag, Properties::Scalar>;
     using FluidSystem = GetPropType<TypeTag, Properties::FluidSystem>;
     using RateVector = GetPropType<TypeTag, Properties::RateVector>;
+    using Evaluation = GetPropType<TypeTag, Properties::Evaluation>;
+    using Indices = GetPropType<TypeTag, Properties::Indices>;
+    using IntensiveQuantities = GetPropType<TypeTag, Properties::IntensiveQuantities>;
 
 public:
 
@@ -63,31 +68,129 @@ public:
     /*!
      * \brief Initialize all internal data structures needed by the convective mixing module
      */
-    static void beginEpisode()
+    static void initFromState(const Schedule& schedule)
     {
-        //const oilVaporizationControl
-        //const auto& oilVaporizationControl = problem.simulator().vanguard().schedule()[problem.episodeIndex()].oilvap();
+        int episodeIdx = 0;
+        const auto& control = schedule[episodeIdx].oilvap();
+        active_ = control.drsdtConvective(); 
+        Xhi_ = control.getMaxDRSDT(0);
+        Smo_ = control.getSmo(0);
         //use_mole_fraction_ = eclState.getTableManager().diffMoleFraction();
         //active = EclSTate
         //bool convectivemixing 
+
+        
     }
     #endif
 
-    /*!
-     * \brief Register all run-time parameters for the convective mixing module.
-     */
-    static void registerParameters()
-    {}
 
     /*!
      * \brief Adds the diffusive mass flux flux to the flux vector over a flux
      *        integration point.
       */
     template <class Context>
-    static void addConvectiveMixingFlux()
-    {}
+    static void addConvectiveMixingFlux(RateVector& flux,
+                            const unsigned globalIndexIn,
+                            const unsigned globalIndexEx,
+                            const Scalar& distZg,
+                            const Scalar& trans,
+                            const Scalar& faceArea,
+                            const unsigned focusDofIdx,
+                            const unsigned conti0EqIdx,
+                            const IntensiveQuantities& intQuantsIn,
+                            const IntensiveQuantities& intQuantsEx)
+    {
+
+
+          if (!active_) {
+            return;
+          }
+
+            const Scalar rs_zero_in = 0.0;
+            const auto& t_in = Opm::getValue(intQuantsIn.fluidState().temperature(FluidSystem::oilPhaseIdx));
+            const auto& p_in = Opm::getValue(intQuantsIn.fluidState().pressure(FluidSystem::oilPhaseIdx));
+            const auto& rssat_in = Opm::getValue(intQuantsIn.fluidState().RsSat()); 
+            const auto rho_in
+                = FluidSystem::oilPvt().inverseFormationVolumeFactor(intQuantsIn.pvtRegionIndex(), t_in, p_in, rs_zero_in)
+                * FluidSystem::oilPvt().oilReferenceDensity(intQuantsIn.pvtRegionIndex());
+            const auto rho_sat_in = FluidSystem::oilPvt().saturatedInverseFormationVolumeFactor(intQuantsIn.pvtRegionIndex(), t_in, p_in)
+                * (FluidSystem::oilPvt().oilReferenceDensity(intQuantsIn.pvtRegionIndex())
+                + rssat_in * FluidSystem::referenceDensity(FluidSystem::gasPhaseIdx, intQuantsIn.pvtRegionIndex()));
+            
+            //exteriour
+
+            const Scalar rs_zero_ex = 0.0;
+            const auto& t_ex = Opm::getValue(intQuantsEx.fluidState().temperature(FluidSystem::oilPhaseIdx));
+            const auto& p_ex = Opm::getValue(intQuantsEx.fluidState().pressure(FluidSystem::oilPhaseIdx));
+            const auto& rssat_ex = Opm::getValue(intQuantsEx.fluidState().RsSat());
+            const auto rho_ex
+                = FluidSystem::oilPvt().inverseFormationVolumeFactor(intQuantsEx.pvtRegionIndex(), t_ex, p_ex, rs_zero_ex)
+                * FluidSystem::oilPvt().oilReferenceDensity(intQuantsEx.pvtRegionIndex());
+            const auto rho_sat_ex = FluidSystem::oilPvt().saturatedInverseFormationVolumeFactor(intQuantsEx.pvtRegionIndex(), t_ex, p_ex)
+                * (FluidSystem::oilPvt().oilReferenceDensity(intQuantsEx.pvtRegionIndex())
+                + rssat_ex * FluidSystem::referenceDensity(FluidSystem::gasPhaseIdx, intQuantsEx.pvtRegionIndex()));
+            
+            //rho difference approximation
+            const auto delta_rho = (rho_sat_ex + rho_sat_in - rho_in -rho_ex)/2;
+            const auto pressure_difference_convective_mixing =  delta_rho * distZg;
+
+            //if change in pressure
+            if (Opm::abs(pressure_difference_convective_mixing) > 1e-12){
+
+                // find new upstream direction
+                short interiorDofIdx = 0; // NB
+                short exteriorDofIdx = 1; // NB
+                unsigned upIdx = 0;//scvf.interiorIndex();
+                unsigned downIdx = 1;//scvf.exteriorIndex();
+
+                if (pressure_difference_convective_mixing > 0) {
+                    upIdx = exteriorDofIdx;//scvf.exteriorIndex();
+                    downIdx = interiorDofIdx;//scvf.interiorIndex();
+                }
+
+                const auto& up2 = (upIdx == interiorDofIdx) ? intQuantsIn : intQuantsEx;
+                unsigned globalUpIndex2 = (upIdx == interiorDofIdx) ? globalIndexIn : globalIndexEx;
+
+                const auto& down2 = (downIdx == interiorDofIdx) ? intQuantsIn : intQuantsEx;
+                unsigned globalDownIndex2 = (downIdx == interiorDofIdx) ? globalIndexIn : globalIndexEx;
+
+                
+                const auto& Rs =  up2.fluidState().Rs();
+                //const Evaluation SoMax = 0.0;
+                const auto& RsSat = up2.fluidState().RsSat();
+                const Evaluation& transMult = up2.rockCompTransMultiplier();
+                
+                //Evaluation Sm = Opm::min(0.999, Opm::max(0.001, Rs/RsSat));
+                // for regime:
+
+                Evaluation sg = up2.fluidState().saturation(FluidSystem::gasPhaseIdx);
+                Evaluation S = (Rs - RsSat * sg) / (RsSat * ( 1.0 - sg));
+                if ( (S > Smo_[up2.pvtRegionIndex()] || down2.fluidState().Rs() > 0) ) {
+                    const auto& invB = up2.fluidState().invB(FluidSystem::oilPhaseIdx);
+                    const auto& visc = up2.fluidState().viscosity(FluidSystem::oilPhaseIdx);
+                    // what will be the flux when muliplied with trans_mob
+                    const auto convectiveFlux = -trans*transMult*Xhi_[up2.pvtRegionIndex()]*invB*pressure_difference_convective_mixing*Rs/(visc*faceArea);
+                    unsigned activeGasCompIdx = Indices::canonicalToActiveComponentIndex(FluidSystem::gasCompIdx);
+                    
+                    // Since the upwind direction may have changed from what was used to compute the mobility.
+                    // We keep the derivative of the trans_mob
+                    if (upIdx == focusDofIdx)
+                        flux[conti0EqIdx + activeGasCompIdx] += convectiveFlux;
+                    else
+                        flux[conti0EqIdx + activeGasCompIdx] += Opm::getValue(convectiveFlux);
+                }
+            } 
+    };
+
+    protected:
+    static bool active_;
+    static Scalar Xhi_;
+    static Scalar Smo_;
+
+
 };
 }
+#endif
 
 
 
