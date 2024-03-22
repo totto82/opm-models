@@ -37,6 +37,7 @@
 #include "blackoilbrinemodules.hh"
 #include "blackoildiffusionmodule.hh"
 #include "blackoilmicpmodules.hh"
+#include "blackoilconvectivemixingmodule.hh"
 #include <opm/material/fluidstates/BlackOilFluidState.hpp>
 
 namespace Opm {
@@ -90,6 +91,8 @@ class BlackOilLocalResidual : public GetPropType<TypeTag, Properties::DiscLocalR
     using BrineModule = BlackOilBrineModule<TypeTag>;
     using DiffusionModule = BlackOilDiffusionModule<TypeTag, enableDiffusion>;
     using MICPModule = BlackOilMICPModule<TypeTag>;
+    using ConvectiveMixingModule = BlackOilConvectiveMixingModule<TypeTag>;
+
 
 public:
     /*!
@@ -211,7 +214,7 @@ public:
                 evalPhaseFluxes_<Scalar>(flux, phaseIdx, pvtRegionIdx, extQuants, up.fluidState());
         }
 		
-		const auto& problem = elemCtx.problem();
+		/* const auto& problem = elemCtx.problem();
 		const auto& oilVaporizationControl = problem.simulator().vanguard().schedule()[problem.episodeIndex()].oilvap();
 
 		if(oilVaporizationControl.drsdtConvective()) {
@@ -289,7 +292,8 @@ public:
                     }
                 }
 			}
-		}
+		} */
+        
         // deal with solvents (if present)
         SolventModule::computeFlux(flux, elemCtx, scvfIdx, timeIdx);
 
@@ -312,6 +316,8 @@ public:
         MICPModule::computeFlux(flux, elemCtx, scvfIdx, timeIdx);
 
         DiffusionModule::addDiffusiveFlux(flux, elemCtx, scvfIdx, timeIdx);
+
+        ConvectiveMixingModule::addConvectiveMixingFlux(flux,elemCtx, scvfIdx, timeIdx);
     }
 
     /*!
