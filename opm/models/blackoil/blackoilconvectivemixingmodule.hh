@@ -153,77 +153,78 @@ public:
     {
 
 
-          if (!active_) {
+        if (!active_) {
             return;
-          }
-            const Scalar rs_zero_in = 0.0;
-            const auto& t_in = Opm::getValue(intQuantsIn.fluidState().temperature(FluidSystem::oilPhaseIdx));
-            const auto& p_in = Opm::getValue(intQuantsIn.fluidState().pressure(FluidSystem::oilPhaseIdx));
-            const auto& rssat_in = Opm::getValue(intQuantsIn.fluidState().RsSat()); 
-            const auto rho_in
-                = FluidSystem::oilPvt().inverseFormationVolumeFactor(intQuantsIn.pvtRegionIndex(), t_in, p_in, rs_zero_in)
-                * FluidSystem::oilPvt().oilReferenceDensity(intQuantsIn.pvtRegionIndex());
-            const auto rho_sat_in = FluidSystem::oilPvt().saturatedInverseFormationVolumeFactor(intQuantsIn.pvtRegionIndex(), t_in, p_in)
-                * (FluidSystem::oilPvt().oilReferenceDensity(intQuantsIn.pvtRegionIndex())
-                + rssat_in * FluidSystem::referenceDensity(FluidSystem::gasPhaseIdx, intQuantsIn.pvtRegionIndex()));
+        }
+
+        const Scalar rs_zero_in = 0.0;
+        const auto& t_in = Opm::getValue(intQuantsIn.fluidState().temperature(FluidSystem::oilPhaseIdx));
+        const auto& p_in = Opm::getValue(intQuantsIn.fluidState().pressure(FluidSystem::oilPhaseIdx));
+        const auto& rssat_in = Opm::getValue(intQuantsIn.fluidState().RsSat()); 
+        const auto rho_in
+            = FluidSystem::oilPvt().inverseFormationVolumeFactor(intQuantsIn.pvtRegionIndex(), t_in, p_in, rs_zero_in)
+            * FluidSystem::oilPvt().oilReferenceDensity(intQuantsIn.pvtRegionIndex());
+        const auto rho_sat_in = FluidSystem::oilPvt().saturatedInverseFormationVolumeFactor(intQuantsIn.pvtRegionIndex(), t_in, p_in)
+            * (FluidSystem::oilPvt().oilReferenceDensity(intQuantsIn.pvtRegionIndex())
+            + rssat_in * FluidSystem::referenceDensity(FluidSystem::gasPhaseIdx, intQuantsIn.pvtRegionIndex()));
+        
+        //exteriour
+
+        const Scalar rs_zero_ex = 0.0;
+        const auto& t_ex = Opm::getValue(intQuantsEx.fluidState().temperature(FluidSystem::oilPhaseIdx));
+        const auto& p_ex = Opm::getValue(intQuantsEx.fluidState().pressure(FluidSystem::oilPhaseIdx));
+        const auto& rssat_ex = Opm::getValue(intQuantsEx.fluidState().RsSat());
+        const auto rho_ex
+            = FluidSystem::oilPvt().inverseFormationVolumeFactor(intQuantsEx.pvtRegionIndex(), t_ex, p_ex, rs_zero_ex)
+            * FluidSystem::oilPvt().oilReferenceDensity(intQuantsEx.pvtRegionIndex());
+        const auto rho_sat_ex = FluidSystem::oilPvt().saturatedInverseFormationVolumeFactor(intQuantsEx.pvtRegionIndex(), t_ex, p_ex)
+            * (FluidSystem::oilPvt().oilReferenceDensity(intQuantsEx.pvtRegionIndex())
+            + rssat_ex * FluidSystem::referenceDensity(FluidSystem::gasPhaseIdx, intQuantsEx.pvtRegionIndex()));
+        
+        //rho difference approximation
+        const auto delta_rho = (rho_sat_ex + rho_sat_in - rho_in -rho_ex)/2;
+        const auto pressure_difference_convective_mixing =  delta_rho * distZg;
+
+        //if change in pressure
+        if (Opm::abs(pressure_difference_convective_mixing) > 1e-12){
+
+            // find new upstream direction
+            short interiorDofIdx = 0; // NB
+            short exteriorDofIdx = 1; // NB
+            unsigned upIdx = 0;//scvf.interiorIndex();
+            unsigned downIdx = 1;//scvf.exteriorIndex();
+
+            if (pressure_difference_convective_mixing > 0) {
+                upIdx = exteriorDofIdx;//scvf.exteriorIndex();
+                downIdx = interiorDofIdx;//scvf.interiorIndex();
+            }
+
+            const auto& up = (upIdx == interiorDofIdx) ? intQuantsIn : intQuantsEx;
+            unsigned globalUpIndex = (upIdx == interiorDofIdx) ? globalIndexIn : globalIndexEx;
+
+            const auto& down = (downIdx == interiorDofIdx) ? intQuantsIn : intQuantsEx;
+            unsigned globalDownIndex = (downIdx == interiorDofIdx) ? globalIndexIn : globalIndexEx;
+
             
-            //exteriour
-
-            const Scalar rs_zero_ex = 0.0;
-            const auto& t_ex = Opm::getValue(intQuantsEx.fluidState().temperature(FluidSystem::oilPhaseIdx));
-            const auto& p_ex = Opm::getValue(intQuantsEx.fluidState().pressure(FluidSystem::oilPhaseIdx));
-            const auto& rssat_ex = Opm::getValue(intQuantsEx.fluidState().RsSat());
-            const auto rho_ex
-                = FluidSystem::oilPvt().inverseFormationVolumeFactor(intQuantsEx.pvtRegionIndex(), t_ex, p_ex, rs_zero_ex)
-                * FluidSystem::oilPvt().oilReferenceDensity(intQuantsEx.pvtRegionIndex());
-            const auto rho_sat_ex = FluidSystem::oilPvt().saturatedInverseFormationVolumeFactor(intQuantsEx.pvtRegionIndex(), t_ex, p_ex)
-                * (FluidSystem::oilPvt().oilReferenceDensity(intQuantsEx.pvtRegionIndex())
-                + rssat_ex * FluidSystem::referenceDensity(FluidSystem::gasPhaseIdx, intQuantsEx.pvtRegionIndex()));
+            const auto& Rs =  up.fluidState().Rs();
+            //const Evaluation SoMax = 0.0;
+            const auto& RsSat = up.fluidState().RsSat();
+            const Evaluation& transMult = up.rockCompTransMultiplier();
             
-            //rho difference approximation
-            const auto delta_rho = (rho_sat_ex + rho_sat_in - rho_in -rho_ex)/2;
-            const auto pressure_difference_convective_mixing =  delta_rho * distZg;
-
-            //if change in pressure
-            if (Opm::abs(pressure_difference_convective_mixing) > 1e-12){
-
-                // find new upstream direction
-                short interiorDofIdx = 0; // NB
-                short exteriorDofIdx = 1; // NB
-                unsigned upIdx = 0;//scvf.interiorIndex();
-                unsigned downIdx = 1;//scvf.exteriorIndex();
-
-                if (pressure_difference_convective_mixing > 0) {
-                    upIdx = exteriorDofIdx;//scvf.exteriorIndex();
-                    downIdx = interiorDofIdx;//scvf.interiorIndex();
-                }
-
-                const auto& up = (upIdx == interiorDofIdx) ? intQuantsIn : intQuantsEx;
-                unsigned globalUpIndex = (upIdx == interiorDofIdx) ? globalIndexIn : globalIndexEx;
-
-                const auto& down = (downIdx == interiorDofIdx) ? intQuantsIn : intQuantsEx;
-                unsigned globalDownIndex = (downIdx == interiorDofIdx) ? globalIndexIn : globalIndexEx;
-
-                
-                const auto& Rs =  up.fluidState().Rs();
-                //const Evaluation SoMax = 0.0;
-                const auto& RsSat = up.fluidState().RsSat();
-                const Evaluation& transMult = up.rockCompTransMultiplier();
-                
-                Evaluation sg = up.fluidState().saturation(FluidSystem::gasPhaseIdx);
-                Evaluation S = (Rs - RsSat * sg) / (RsSat * ( 1.0 - sg));
-                if ( (S > Smo_[up.pvtRegionIndex()] || down.fluidState().Rs() > 0) ) {
-                    const auto& invB = up.fluidState().invB(FluidSystem::oilPhaseIdx);
-                    const auto& visc = up.fluidState().viscosity(FluidSystem::oilPhaseIdx);
-                    // what will be the flux when muliplied with trans_mob
-                    const auto convectiveFlux = -trans*transMult*Xhi_[up.pvtRegionIndex()]*invB*pressure_difference_convective_mixing*Rs/(visc*faceArea);
-                    unsigned activeGasCompIdx = Indices::canonicalToActiveComponentIndex(FluidSystem::gasCompIdx);                   
-                    if (globalUpIndex == globalIndexIn)
-                        flux[conti0EqIdx + activeGasCompIdx] += convectiveFlux;
-                    else
-                        flux[conti0EqIdx + activeGasCompIdx] += Opm::getValue(convectiveFlux);
-                }
-            } 
+            Evaluation sg = up.fluidState().saturation(FluidSystem::gasPhaseIdx);
+            Evaluation S = (Rs - RsSat * sg) / (RsSat * ( 1.0 - sg));
+            if ( (S > Smo_[up.pvtRegionIndex()] || down.fluidState().Rs() > 0) ) {
+                const auto& invB = up.fluidState().invB(FluidSystem::oilPhaseIdx);
+                const auto& visc = up.fluidState().viscosity(FluidSystem::oilPhaseIdx);
+                // what will be the flux when muliplied with trans_mob
+                const auto convectiveFlux = -trans*transMult*Xhi_[up.pvtRegionIndex()]*invB*pressure_difference_convective_mixing*Rs/(visc*faceArea);
+                unsigned activeGasCompIdx = Indices::canonicalToActiveComponentIndex(FluidSystem::gasCompIdx);                   
+                if (globalUpIndex == globalIndexIn)
+                    flux[conti0EqIdx + activeGasCompIdx] += convectiveFlux;
+                else
+                    flux[conti0EqIdx + activeGasCompIdx] += Opm::getValue(convectiveFlux);
+            }
+        } 
     };
 
     private:
